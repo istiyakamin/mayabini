@@ -1,0 +1,41 @@
+{
+  "name": "mayabini",
+  "version": "1.0.0",
+  "description": "A sentence based easy bangla programming language for kids and beginners",
+  "main": "lib/parser.js",
+  "directories": {
+    "doc": "docs",
+    "example": "examples"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ikrum/potaka.git"
+  },
+  "keywords": [
+    "potaka",
+    "bangla",
+    "programming"
+  ],
+  "dependencies": {
+    "escodegen": "^1.8.0"
+  },
+  "devDependencies": {
+    "grunt": "^1.0.1",
+    "grunt-contrib-concat": "^1.0.1",
+    "grunt-contrib-copy": "^1.0.0",
+    "grunt-contrib-cssmin": "^1.0.1",
+    "grunt-contrib-uglify": "^1.0.1",
+    "grunt-filerev": "^2.3.1",
+    "grunt-unicode": "^0.1.4",
+    "grunt-usemin": "^3.1.1"
+  },
+  "author": "Ikrum Hossain",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ikrum/potaka/issues"
+  },
+  "homepage": "https://github.com/ikrum/potaka#readme"
+}
