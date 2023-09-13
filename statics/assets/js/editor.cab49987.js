@@ -1,4 +1,785 @@
-var peg = (function() {
+// CodeMirror, copyright (c) by Marijn Haverbeke and others
+// Distributed under an MIT license: http://codemirror.net/LICENSE
+
+// TODO actually recognize syntax of TypeScript constructs
+
+(function(mod) {
+  if (typeof exports == "object" && typeof module == "object") // CommonJS
+    mod(require("../../lib/codemirror"));
+  else if (typeof define == "function" && define.amd) // AMD
+    define(["../../lib/codemirror"], mod);
+  else // Plain browser env
+    mod(CodeMirror);
+})(function(CodeMirror) {
+"use strict";
+
+function expressionAllowed(stream, state, backUp) {
+  return /^(?:operator|sof|keyword c|case|new|[\[{}\(,;:]|=>)$/.test(state.lastType) ||
+    (state.lastType == "quasi" && /\{\s*$/.test(stream.string.slice(0, stream.pos - (backUp || 0))))
+}
+
+CodeMirror.defineMode("chokjs", function(config, parserConfig) {
+  var indentUnit = config.indentUnit;
+  var statementIndent = parserConfig.statementIndent;
+  var jsonldMode = parserConfig.jsonld;
+  var jsonMode = parserConfig.json || jsonldMode;
+  var isTS = parserConfig.typescript;
+  var wordRE = parserConfig.wordCharacters || /[\w$\xa1-\uffff]/;
+
+  // Tokenizer
+
+  var keywords = function(){
+    function kw(type) {return {type: type, style: "keyword"};}
+    function def(type) {return {type: type, style: "def"};}
+    var A = kw("keyword a"), B = kw("keyword b"), C = kw("keyword c");
+    var operator = kw("operator"), atom = {type: "atom", style: "atom"};
+
+    var jsKeywords = {
+      '\u09AA\u09A4\u09BE\u0995\u09BE' : def("func"),
+      '_\u099F\u09BE\u0987\u09AA' : def("func"),
+      '_\u09AC\u09B0\u09CD\u0997\u09AE\u09C2\u09B2' : def("func"),
+      '_\u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0' : def("func"),
+      '_\u09AA\u09C2\u09B0\u09CD\u09A3\u09B8\u0982\u0996\u09CD\u09AF\u09BE' : def("func"),
+      '_\u09AA\u09BE\u0987' : def("func"),
+      '_\u09B8\u09AE\u09DF' : def("func"),
+      '\u0987\u09A8\u09AA\u09C1\u099F' : def("func"),
+      '\u09A6\u09C7\u0996\u09BE\u0993' : def("func"),
+      "\u09AF\u09A6\u09BF": kw("if"),
+      "\u09A8\u09BE\u09B9\u09B2\u09C7": kw("if"),
+      "\u09B0\u09BF\u099F\u09BE\u09B0\u09CD\u09A8": C,
+      "\u09AC\u09BE\u09B9\u09BF\u09B0": C,
+      "\u099A\u09B2\u09AC\u09C7": C,
+      "\u09A1\u09BF\u09B2\u09BF\u099F": C,
+      "×": C,
+      "÷": C,
+      "+": C,
+      "-": C,
+      "*": C,
+      "%": C,
+      "\u09A1\u09BF\u09B2\u09BF\u099F": C,
+      "\u09A7\u09B0\u09BF": kw("var"),
+      "\u09A7\u09CD\u09B0\u09C1\u09AC\u0995": kw("var"),
+      "\u09AB\u09BE\u0982\u09B6\u09A8": kw("function"),
+      "\u09B2\u09C1\u09AA": kw("for"),
+      "\u098F\u09B0": operator,
+      "\u09A7\u09B0\u09A8": operator,
+      "\u09AE\u09BE\u09A8": operator,
+      "\u09B8\u09AE\u09BE\u09A8": operator,
+      "\u09B9\u09A4\u09C7": operator,
+      "\u09A5\u09C7\u0995\u09C7": operator,
+      "\u099A\u09C7\u09DF\u09C7": operator,
+      "\u09AC\u09DC": operator,
+      "\u09AC\u09C7\u09B6\u09BF": operator,
+      "\u0995\u09AE": operator,
+      "\u099B\u09C7\u09BE\u099F": operator,
+      "\u099B\u09CB\u099F": operator,
+      "\u09B9\u09DF": operator,
+      "\u09A5\u09BE\u0995\u09C7": operator,
+      "\u09AA\u09BE\u09DF": operator,
+      "\u09AC\u09B2\u09A4\u09C7": operator,
+      "\u09B6\u09C1\u09A8\u09A4\u09C7": operator,
+      "\u09AC\u09C1\u099D\u09A4\u09C7": operator,
+      "\u09A6\u09C7\u0996\u09A4\u09C7": operator,
+      "\u09AA\u09BE\u09DF": operator,
+      "\u098F\u09AC\u0982": atom,
+      "\u0985\u09A5\u09AC\u09BE": atom,
+      "\u09B9\u09CD\u09AF\u09BE": atom,
+      "\u09A8\u09BE": atom,
+      "\u09B8\u09A4\u09CD\u09AF": atom,
+      "\u09AE\u09BF\u09A5\u09CD\u09AF\u09BE": atom,
+      "\u09AC\u09C1\u09B2\u09BF\u09DF\u09BE\u09A8": atom,
+      "\u09AC\u09BE\u09B0": atom,
+      "_\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8": atom,
+      "\u09A8\u09BE\u09B2" : atom,
+      "\u0985\u09B8\u0999\u09CD\u0997\u09BE\u09DF\u09BF\u09A4": atom,
+      "\u0985\u09B8\u09C0\u09AE": atom,
+      "\u09A5\u09BE\u09AE\u09C7\u09BE": atom,
+      "\u09A5\u09BE\u09AE\u09CB": atom
+    };
+
+    // Extend the 'normal' keywords with the TypeScript language extensions
+    if (isTS) {
+      var type = {type: "variable", style: "variable-3"};
+      var tsKeywords = {
+        "string": type, "number": type, "boolean": type, "any": type
+      };
+      for (var attr in tsKeywords) {
+        jsKeywords[attr] = tsKeywords[attr];
+      }
+    }
+    return jsKeywords;
+  }();
+
+  var isOperatorChar = /[+\-*&%=<>!?|~^]/;
+  var isJsonldKeyword = /^@(context|id|value|language|type|container|list|set|reverse|index|base|vocab|graph)"/;
+
+  function readRegexp(stream) {
+    var escaped = false, next, inSet = false;
+    while ((next = stream.next()) != null) {
+      if (!escaped) {
+        if (next == "/" && !inSet) return;
+        if (next == "[") inSet = true;
+        else if (inSet && next == "]") inSet = false;
+      }
+      escaped = !escaped && next == "\\";
+    }
+  }
+
+  // Used as scratch variables to communicate multiple values without
+  // consing up tons of objects.
+  var type, content;
+  function ret(tp, style, cont) {
+    type = tp; content = cont;
+    return style;
+  }
+  function tokenBase(stream, state) {
+    var ch = stream.next();
+    if (ch == '"' || ch == "'") {
+      state.tokenize = tokenString(ch);
+      return state.tokenize(stream, state);
+    } else if (ch == "." && stream.match(/^\d+(?:[eE][+\-]?\d+)?/)) {
+      return ret("number", "number");
+    } else if ( /[\u09E6-\u09EF]/.test(ch) ) {
+      return ret("number", "number");
+    } else if (/[\[\]{}\(\),;\:\.]/.test(ch)) {
+      return ret(ch);
+    } else if (ch == "=" && stream.eat(">")) {
+      return ret("=>", "operator");
+    } else if (ch == "0" && stream.eat(/x/i)) {
+      stream.eatWhile(/[\da-f]/i);
+      return ret("number", "number");
+    } else if (ch == "0" && stream.eat(/o/i)) {
+      stream.eatWhile(/[0-7]/i);
+      return ret("number", "number");
+    } else if (ch == "0" && stream.eat(/b/i)) {
+      stream.eatWhile(/[01]/i);
+      return ret("number", "number");
+    } else if (/\d/.test(ch)) {
+      stream.match(/^\d*(?:\.\d*)?(?:[eE][+\-]?\d+)?/);
+      return ret("number", "number");
+    } else if (ch == "/") {
+      if (stream.eat("*")) {
+        state.tokenize = tokenComment;
+        return tokenComment(stream, state);
+      } else if (stream.eat("/")) {
+        stream.skipToEnd();
+        return ret("comment", "comment");
+      } else if (expressionAllowed(stream, state, 1)) {
+        readRegexp(stream);
+        stream.match(/^\b(([gimyu])(?![gimyu]*\2))+\b/);
+        return ret("regexp", "string-2");
+      } else {
+        stream.eatWhile(isOperatorChar);
+        return ret("operator", "operator", stream.current());
+      }
+    } else if (ch == "`") {
+      state.tokenize = tokenQuasi;
+      return tokenQuasi(stream, state);
+    } else if (ch == "#") {
+      stream.skipToEnd();
+      return ret("error", "error");
+    } else if (isOperatorChar.test(ch)) {
+      stream.eatWhile(isOperatorChar);
+      return ret("operator", "operator", stream.current());
+    } else if (wordRE.test(ch)) {
+      stream.eatWhile(wordRE);
+      var word = stream.current(), known = keywords.propertyIsEnumerable(word) && keywords[word];
+      return (known && state.lastType != ".") ? ret(known.type, known.style, word) :
+                     ret("variable", "variable", word);
+    }
+  }
+
+  function tokenString(quote) {
+    return function(stream, state) {
+      var escaped = false, next;
+      if (jsonldMode && stream.peek() == "@" && stream.match(isJsonldKeyword)){
+        state.tokenize = tokenBase;
+        return ret("jsonld-keyword", "meta");
+      }
+      while ((next = stream.next()) != null) {
+        if (next == quote && !escaped) break;
+        escaped = !escaped && next == "\\";
+      }
+      if (!escaped) state.tokenize = tokenBase;
+      return ret("string", "string");
+    };
+  }
+
+  function tokenComment(stream, state) {
+    var maybeEnd = false, ch;
+    while (ch = stream.next()) {
+      if (ch == "/" && maybeEnd) {
+        state.tokenize = tokenBase;
+        break;
+      }
+      maybeEnd = (ch == "*");
+    }
+    return ret("comment", "comment");
+  }
+
+  function tokenQuasi(stream, state) {
+    var escaped = false, next;
+    while ((next = stream.next()) != null) {
+      if (!escaped && (next == "`" || next == "$" && stream.eat("{"))) {
+        state.tokenize = tokenBase;
+        break;
+      }
+      escaped = !escaped && next == "\\";
+    }
+    return ret("quasi", "string-2", stream.current());
+  }
+
+  var brackets = "([{}])";
+  // This is a crude lookahead trick to try and notice that we're
+  // parsing the argument patterns for a fat-arrow function before we
+  // actually hit the arrow token. It only works if the arrow is on
+  // the same line as the arguments and there's no strange noise
+  // (comments) in between. Fallback is to only notice when we hit the
+  // arrow, and not declare the arguments as locals for the arrow
+  // body.
+  function findFatArrow(stream, state) {
+    if (state.fatArrowAt) state.fatArrowAt = null;
+    var arrow = stream.string.indexOf("=>", stream.start);
+    if (arrow < 0) return;
+
+    var depth = 0, sawSomething = false;
+    for (var pos = arrow - 1; pos >= 0; --pos) {
+      var ch = stream.string.charAt(pos);
+      var bracket = brackets.indexOf(ch);
+      if (bracket >= 0 && bracket < 3) {
+        if (!depth) { ++pos; break; }
+        if (--depth == 0) break;
+      } else if (bracket >= 3 && bracket < 6) {
+        ++depth;
+      } else if (wordRE.test(ch)) {
+        sawSomething = true;
+      } else if (/["'\/]/.test(ch)) {
+        return;
+      } else if (sawSomething && !depth) {
+        ++pos;
+        break;
+      }
+    }
+    if (sawSomething && !depth) state.fatArrowAt = pos;
+  }
+
+  // Parser
+
+  var atomicTypes = {"atom": true, "number": true, "variable": true, "string": true, "regexp": true, "this": true, "jsonld-keyword": true};
+
+  function JSLexical(indented, column, type, align, prev, info) {
+    this.indented = indented;
+    this.column = column;
+    this.type = type;
+    this.prev = prev;
+    this.info = info;
+    if (align != null) this.align = align;
+  }
+
+  function inScope(state, varname) {
+    for (var v = state.localVars; v; v = v.next)
+      if (v.name == varname) return true;
+    for (var cx = state.context; cx; cx = cx.prev) {
+      for (var v = cx.vars; v; v = v.next)
+        if (v.name == varname) return true;
+    }
+  }
+
+  function parseJS(state, style, type, content, stream) {
+    var cc = state.cc;
+    // Communicate our context to the combinators.
+    // (Less wasteful than consing up a hundred closures on every call.)
+    cx.state = state; cx.stream = stream; cx.marked = null, cx.cc = cc; cx.style = style;
+
+    if (!state.lexical.hasOwnProperty("align"))
+      state.lexical.align = true;
+
+    while(true) {
+      var combinator = cc.length ? cc.pop() : jsonMode ? expression : statement;
+      if (combinator(type, content)) {
+        while(cc.length && cc[cc.length - 1].lex)
+          cc.pop()();
+        if (cx.marked) return cx.marked;
+        if (type == "variable" && inScope(state, content)) return "variable-2";
+        return style;
+      }
+    }
+  }
+
+  // Combinator utils
+
+  var cx = {state: null, column: null, marked: null, cc: null};
+  function pass() {
+    for (var i = arguments.length - 1; i >= 0; i--) cx.cc.push(arguments[i]);
+  }
+  function cont() {
+    pass.apply(null, arguments);
+    return true;
+  }
+  function register(varname) {
+    function inList(list) {
+      for (var v = list; v; v = v.next)
+        if (v.name == varname) return true;
+      return false;
+    }
+    var state = cx.state;
+    cx.marked = "define";
+    if (state.context) {
+      if (inList(state.localVars)) return;
+      state.localVars = {name: varname, next: state.localVars};
+    } else {
+      if (inList(state.globalVars)) return;
+      if (parserConfig.globalVars)
+        state.globalVars = {name: varname, next: state.globalVars};
+    }
+  }
+
+  // Combinators
+
+  var defaultVars = {name: "this", next: {name: "arguments"}};
+  function pushcontext() {
+    cx.state.context = {prev: cx.state.context, vars: cx.state.localVars};
+    cx.state.localVars = defaultVars;
+  }
+  function popcontext() {
+    cx.state.localVars = cx.state.context.vars;
+    cx.state.context = cx.state.context.prev;
+  }
+  function pushlex(type, info) {
+    var result = function() {
+      var state = cx.state, indent = state.indented;
+      if (state.lexical.type == "stat") indent = state.lexical.indented;
+      else for (var outer = state.lexical; outer && outer.type == ")" && outer.align; outer = outer.prev)
+        indent = outer.indented;
+      state.lexical = new JSLexical(indent, cx.stream.column(), type, null, state.lexical, info);
+    };
+    result.lex = true;
+    return result;
+  }
+  function poplex() {
+    var state = cx.state;
+    if (state.lexical.prev) {
+      if (state.lexical.type == ")")
+        state.indented = state.lexical.indented;
+      state.lexical = state.lexical.prev;
+    }
+  }
+  poplex.lex = true;
+
+  function expect(wanted) {
+    function exp(type) {
+      if (type == wanted) return cont();
+      else if (wanted == ";") return pass();
+      else return cont(exp);
+    };
+    return exp;
+  }
+
+  function statement(type, value) {
+    if (type == "var") return cont(pushlex("vardef", value.length), vardef, expect(";"), poplex);
+    if (type == "keyword a") return cont(pushlex("form"), expression, statement, poplex);
+    if (type == "keyword b") return cont(pushlex("form"), statement, poplex);
+    if (type == "{") return cont(pushlex("}"), block, poplex);
+    if (type == ";") return cont();
+    if (type == "if") {
+      if (cx.state.lexical.info == "else" && cx.state.cc[cx.state.cc.length - 1] == poplex)
+        cx.state.cc.pop()();
+      return cont(pushlex("form"), expression, statement, poplex, maybeelse);
+    }
+    if (type == "function") return cont(functiondef);
+    if (type == "for") return cont(pushlex("form"), forspec, statement, poplex);
+    if (type == "variable") return cont(pushlex("stat"), maybelabel);
+    if (type == "switch") return cont(pushlex("form"), expression, pushlex("}", "switch"), expect("{"),
+                                      block, poplex, poplex);
+    if (type == "case") return cont(expression, expect(":"));
+    if (type == "default") return cont(expect(":"));
+    if (type == "catch") return cont(pushlex("form"), pushcontext, expect("("), funarg, expect(")"),
+                                     statement, poplex, popcontext);
+    if (type == "class") return cont(pushlex("form"), className, poplex);
+    if (type == "export") return cont(pushlex("stat"), afterExport, poplex);
+    if (type == "import") return cont(pushlex("stat"), afterImport, poplex);
+    if (type == "module") return cont(pushlex("form"), pattern, pushlex("}"), expect("{"), block, poplex, poplex)
+    if (type == "async") return cont(statement)
+    return pass(pushlex("stat"), expression, expect(";"), poplex);
+  }
+  function expression(type) {
+    return expressionInner(type, false);
+  }
+  function expressionNoComma(type) {
+    return expressionInner(type, true);
+  }
+  function expressionInner(type, noComma) {
+    if (cx.state.fatArrowAt == cx.stream.start) {
+      var body = noComma ? arrowBodyNoComma : arrowBody;
+      if (type == "(") return cont(pushcontext, pushlex(")"), commasep(pattern, ")"), poplex, expect("=>"), body, popcontext);
+      else if (type == "variable") return pass(pushcontext, pattern, expect("=>"), body, popcontext);
+    }
+
+    var maybeop = noComma ? maybeoperatorNoComma : maybeoperatorComma;
+    if (atomicTypes.hasOwnProperty(type)) return cont(maybeop);
+    if (type == "function") return cont(functiondef, maybeop);
+    if (type == "keyword c") return cont(noComma ? maybeexpressionNoComma : maybeexpression);
+    if (type == "(") return cont(pushlex(")"), maybeexpression, comprehension, expect(")"), poplex, maybeop);
+    if (type == "operator" || type == "spread") return cont(noComma ? expressionNoComma : expression);
+    if (type == "[") return cont(pushlex("]"), arrayLiteral, poplex, maybeop);
+    if (type == "{") return contCommasep(objprop, "}", null, maybeop);
+    if (type == "quasi") return pass(quasi, maybeop);
+    if (type == "new") return cont(maybeTarget(noComma));
+    return cont();
+  }
+  function maybeexpression(type) {
+    if (type.match(/[;\}\)\],]/)) return pass();
+    return pass(expression);
+  }
+  function maybeexpressionNoComma(type) {
+    if (type.match(/[;\}\)\],]/)) return pass();
+    return pass(expressionNoComma);
+  }
+
+  function maybeoperatorComma(type, value) {
+    if (type == ",") return cont(expression);
+    return maybeoperatorNoComma(type, value, false);
+  }
+  function maybeoperatorNoComma(type, value, noComma) {
+    var me = noComma == false ? maybeoperatorComma : maybeoperatorNoComma;
+    var expr = noComma == false ? expression : expressionNoComma;
+    if (type == "=>") return cont(pushcontext, noComma ? arrowBodyNoComma : arrowBody, popcontext);
+    if (type == "operator") {
+      if (/\+\+|--/.test(value)) return cont(me);
+      if (value == "?") return cont(expression, expect(":"), expr);
+      return cont(expr);
+    }
+    if (type == "quasi") { return pass(quasi, me); }
+    if (type == ";") return;
+    if (type == "(") return contCommasep(expressionNoComma, ")", "call", me);
+    if (type == ".") return cont(property, me);
+    if (type == "[") return cont(pushlex("]"), maybeexpression, expect("]"), poplex, me);
+  }
+  function quasi(type, value) {
+    if (type != "quasi") return pass();
+    if (value.slice(value.length - 2) != "${") return cont(quasi);
+    return cont(expression, continueQuasi);
+  }
+  function continueQuasi(type) {
+    if (type == "}") {
+      cx.marked = "string-2";
+      cx.state.tokenize = tokenQuasi;
+      return cont(quasi);
+    }
+  }
+  function arrowBody(type) {
+    findFatArrow(cx.stream, cx.state);
+    return pass(type == "{" ? statement : expression);
+  }
+  function arrowBodyNoComma(type) {
+    findFatArrow(cx.stream, cx.state);
+    return pass(type == "{" ? statement : expressionNoComma);
+  }
+  function maybeTarget(noComma) {
+    return function(type) {
+      if (type == ".") return cont(noComma ? targetNoComma : target);
+      else return pass(noComma ? expressionNoComma : expression);
+    };
+  }
+  function target(_, value) {
+    if (value == "target") { cx.marked = "keyword"; return cont(maybeoperatorComma); }
+  }
+  function targetNoComma(_, value) {
+    if (value == "target") { cx.marked = "keyword"; return cont(maybeoperatorNoComma); }
+  }
+  function maybelabel(type) {
+    if (type == ":") return cont(poplex, statement);
+    return pass(maybeoperatorComma, expect(";"), poplex);
+  }
+  function property(type) {
+    if (type == "variable") {cx.marked = "property"; return cont();}
+  }
+  function objprop(type, value) {
+    if (type == "variable" || cx.style == "keyword") {
+      cx.marked = "property";
+      if (value == "get" || value == "set") return cont(getterSetter);
+      return cont(afterprop);
+    } else if (type == "number" || type == "string") {
+      cx.marked = jsonldMode ? "property" : (cx.style + " property");
+      return cont(afterprop);
+    } else if (type == "jsonld-keyword") {
+      return cont(afterprop);
+    } else if (type == "modifier") {
+      return cont(objprop)
+    } else if (type == "[") {
+      return cont(expression, expect("]"), afterprop);
+    } else if (type == "spread") {
+      return cont(expression);
+    }
+  }
+  function getterSetter(type) {
+    if (type != "variable") return pass(afterprop);
+    cx.marked = "property";
+    return cont(functiondef);
+  }
+  function afterprop(type) {
+    if (type == ":") return cont(expressionNoComma);
+    if (type == "(") return pass(functiondef);
+  }
+  function commasep(what, end) {
+    function proceed(type, value) {
+      if (type == ",") {
+        var lex = cx.state.lexical;
+        if (lex.info == "call") lex.pos = (lex.pos || 0) + 1;
+        return cont(what, proceed);
+      }
+      if (type == end || value == end) return cont();
+      return cont(expect(end));
+    }
+    return function(type, value) {
+      if (type == end || value == end) return cont();
+      return pass(what, proceed);
+    };
+  }
+  function contCommasep(what, end, info) {
+    for (var i = 3; i < arguments.length; i++)
+      cx.cc.push(arguments[i]);
+    return cont(pushlex(end, info), commasep(what, end), poplex);
+  }
+  function block(type) {
+    if (type == "}") return cont();
+    return pass(statement, block);
+  }
+  function maybetype(type) {
+    if (isTS && type == ":") return cont(typeexpr);
+  }
+  function maybedefault(_, value) {
+    if (value == "=") return cont(expressionNoComma);
+  }
+  function typeexpr(type) {
+    if (type == "variable") {cx.marked = "variable-3"; return cont(afterType);}
+  }
+  function afterType(type, value) {
+    if (value == "<") return cont(commasep(typeexpr, ">"), afterType)
+    if (type == "[") return cont(expect("]"), afterType)
+  }
+  function vardef() {
+    return pass(pattern, maybetype, maybeAssign, vardefCont);
+  }
+  function pattern(type, value) {
+    if (type == "modifier") return cont(pattern)
+    if (type == "variable") { register(value); return cont(); }
+    if (type == "spread") return cont(pattern);
+    if (type == "[") return contCommasep(pattern, "]");
+    if (type == "{") return contCommasep(proppattern, "}");
+  }
+  function proppattern(type, value) {
+    if (type == "variable" && !cx.stream.match(/^\s*:/, false)) {
+      register(value);
+      return cont(maybeAssign);
+    }
+    if (type == "variable") cx.marked = "property";
+    if (type == "spread") return cont(pattern);
+    if (type == "}") return pass();
+    return cont(expect(":"), pattern, maybeAssign);
+  }
+  function maybeAssign(_type, value) {
+    if (value == "=") return cont(expressionNoComma);
+  }
+  function vardefCont(type) {
+    if (type == ",") return cont(vardef);
+  }
+  function maybeelse(type, value) {
+    if (type == "keyword b" && value == "else") return cont(pushlex("form", "else"), statement, poplex);
+  }
+  function forspec(type) {
+    if (type == "(") return cont(pushlex(")"), forspec1, expect(")"), poplex);
+  }
+  function forspec1(type) {
+    if (type == "var") return cont(vardef, expect(";"), forspec2);
+    if (type == ";") return cont(forspec2);
+    if (type == "variable") return cont(formaybeinof);
+    return pass(expression, expect(";"), forspec2);
+  }
+  function formaybeinof(_type, value) {
+    if (value == "in" || value == "of") { cx.marked = "keyword"; return cont(expression); }
+    return cont(maybeoperatorComma, forspec2);
+  }
+  function forspec2(type, value) {
+    if (type == ";") return cont(forspec3);
+    if (value == "in" || value == "of") { cx.marked = "keyword"; return cont(expression); }
+    return pass(expression, expect(";"), forspec3);
+  }
+  function forspec3(type) {
+    if (type != ")") cont(expression);
+  }
+  function functiondef(type, value) {
+    if (value == "*") {cx.marked = "keyword"; return cont(functiondef);}
+    if (type == "variable") {register(value); return cont(functiondef);}
+    if (type == "(") return cont(pushcontext, pushlex(")"), commasep(funarg, ")"), poplex, maybetype, statement, popcontext);
+  }
+  function funarg(type) {
+    if (type == "spread") return cont(funarg);
+    return pass(pattern, maybetype, maybedefault);
+  }
+  function className(type, value) {
+    if (type == "variable") {register(value); return cont(classNameAfter);}
+  }
+  function classNameAfter(type, value) {
+    if (value == "extends") return cont(expression, classNameAfter);
+    if (type == "{") return cont(pushlex("}"), classBody, poplex);
+  }
+  function classBody(type, value) {
+    if (type == "variable" || cx.style == "keyword") {
+      if (value == "static") {
+        cx.marked = "keyword";
+        return cont(classBody);
+      }
+      cx.marked = "property";
+      if (value == "get" || value == "set") return cont(classGetterSetter, functiondef, classBody);
+      return cont(functiondef, classBody);
+    }
+    if (value == "*") {
+      cx.marked = "keyword";
+      return cont(classBody);
+    }
+    if (type == ";") return cont(classBody);
+    if (type == "}") return cont();
+  }
+  function classGetterSetter(type) {
+    if (type != "variable") return pass();
+    cx.marked = "property";
+    return cont();
+  }
+  function afterExport(_type, value) {
+    if (value == "*") { cx.marked = "keyword"; return cont(maybeFrom, expect(";")); }
+    if (value == "default") { cx.marked = "keyword"; return cont(expression, expect(";")); }
+    return pass(statement);
+  }
+  function afterImport(type) {
+    if (type == "string") return cont();
+    return pass(importSpec, maybeFrom);
+  }
+  function importSpec(type, value) {
+    if (type == "{") return contCommasep(importSpec, "}");
+    if (type == "variable") register(value);
+    if (value == "*") cx.marked = "keyword";
+    return cont(maybeAs);
+  }
+  function maybeAs(_type, value) {
+    if (value == "as") { cx.marked = "keyword"; return cont(importSpec); }
+  }
+  function maybeFrom(_type, value) {
+    if (value == "from") { cx.marked = "keyword"; return cont(expression); }
+  }
+  function arrayLiteral(type) {
+    if (type == "]") return cont();
+    return pass(expressionNoComma, maybeArrayComprehension);
+  }
+  function maybeArrayComprehension(type) {
+    if (type == "for") return pass(comprehension, expect("]"));
+    if (type == ",") return cont(commasep(maybeexpressionNoComma, "]"));
+    return pass(commasep(expressionNoComma, "]"));
+  }
+  function comprehension(type) {
+    if (type == "for") return cont(forspec, comprehension);
+    if (type == "if") return cont(expression, comprehension);
+  }
+
+  function isContinuedStatement(state, textAfter) {
+    return state.lastType == "operator" || state.lastType == "," ||
+      isOperatorChar.test(textAfter.charAt(0)) ||
+      /[,.]/.test(textAfter.charAt(0));
+  }
+
+  // Interface
+
+  return {
+    startState: function(basecolumn) {
+      var state = {
+        tokenize: tokenBase,
+        lastType: "sof",
+        cc: [],
+        lexical: new JSLexical((basecolumn || 0) - indentUnit, 0, "block", false),
+        localVars: parserConfig.localVars,
+        context: parserConfig.localVars && {vars: parserConfig.localVars},
+        indented: basecolumn || 0
+      };
+      if (parserConfig.globalVars && typeof parserConfig.globalVars == "object")
+        state.globalVars = parserConfig.globalVars;
+      return state;
+    },
+
+    token: function(stream, state) {
+      if (stream.sol()) {
+        if (!state.lexical.hasOwnProperty("align"))
+          state.lexical.align = false;
+        state.indented = stream.indentation();
+        findFatArrow(stream, state);
+      }
+      if (state.tokenize != tokenComment && stream.eatSpace()) return null;
+      var style = state.tokenize(stream, state);
+      if (type == "comment") return style;
+      state.lastType = type == "operator" && (content == "++" || content == "--") ? "incdec" : type;
+      return parseJS(state, style, type, content, stream);
+    },
+
+    indent: function(state, textAfter) {
+      if (state.tokenize == tokenComment) return CodeMirror.Pass;
+      if (state.tokenize != tokenBase) return 0;
+      var firstChar = textAfter && textAfter.charAt(0), lexical = state.lexical;
+      // Kludge to prevent 'maybelse' from blocking lexical scope pops
+      if (!/^\s*else\b/.test(textAfter)) for (var i = state.cc.length - 1; i >= 0; --i) {
+        var c = state.cc[i];
+        if (c == poplex) lexical = lexical.prev;
+        else if (c != maybeelse) break;
+      }
+      if (lexical.type == "stat" && firstChar == "}") lexical = lexical.prev;
+      if (statementIndent && lexical.type == ")" && lexical.prev.type == "stat")
+        lexical = lexical.prev;
+      var type = lexical.type, closing = firstChar == type;
+
+      if (type == "vardef") return lexical.indented + (state.lastType == "operator" || state.lastType == "," ? lexical.info + 1 : 0);
+      else if (type == "form" && firstChar == "{") return lexical.indented;
+      else if (type == "form") return lexical.indented + indentUnit;
+      else if (type == "stat")
+        return lexical.indented + (isContinuedStatement(state, textAfter) ? statementIndent || indentUnit : 0);
+      else if (lexical.info == "switch" && !closing && parserConfig.doubleIndentSwitch != false)
+        return lexical.indented + (/^(?:case|default)\b/.test(textAfter) ? indentUnit : 2 * indentUnit);
+      else if (lexical.align) return lexical.column + (closing ? 0 : 1);
+      else return lexical.indented + (closing ? 0 : indentUnit);
+    },
+
+    electricInput: /^\s*(?:case .*?:|default:|\{|\})$/,
+    blockCommentStart: jsonMode ? null : "/*",
+    blockCommentEnd: jsonMode ? null : "*/",
+    lineComment: jsonMode ? null : "//",
+    fold: "brace",
+    closeBrackets: "()[]{}''\"\"``",
+
+    helperType: jsonMode ? "json" : "javascript",
+    jsonldMode: jsonldMode,
+    jsonMode: jsonMode,
+
+    expressionAllowed: expressionAllowed,
+    skipExpression: function(state) {
+      var top = state.cc[state.cc.length - 1]
+      if (top == expression || top == expressionNoComma) state.cc.pop()
+    }
+  };
+});
+
+CodeMirror.registerHelper("wordChars", "javascript", /[\w$]/);
+
+CodeMirror.defineMIME("text/javascript", "javascript");
+CodeMirror.defineMIME("text/ecmascript", "javascript");
+CodeMirror.defineMIME("application/javascript", "javascript");
+CodeMirror.defineMIME("application/x-javascript", "javascript");
+CodeMirror.defineMIME("application/ecmascript", "javascript");
+CodeMirror.defineMIME("application/json", {name: "javascript", json: true});
+CodeMirror.defineMIME("application/x-json", {name: "javascript", json: true});
+CodeMirror.defineMIME("application/ld+json", {name: "javascript", jsonld: true});
+CodeMirror.defineMIME("text/typescript", { name: "javascript", typescript: true });
+CodeMirror.defineMIME("application/typescript", { name: "javascript", typescript: true });
+
+});
+
+var Potaka = (function() {
   "use strict";
 
   /*
@@ -11339,53 +12120,53 @@ var peg = (function() {
 
 
       var reserveWords = [
-        "মায়াবিনী",
-        "ধরি",
-        "যদি",
-        "নাহলে",
-        "এবং",
-        "অথবা",
-        "সত্য",
-        "মিথ্যা",
-        "লুপ",
-        "থামো",
-        "থামো",
-        "চলবে",
-        "ফাংশন",
-        "রিটার্ন",
-        "এর",
-        "সমান",
-        "মান",
-        "পায়",
-        "অসীম",
-        "থেকে",
-        "বড়",
-        "বেশি",
-        "ছোট",
-        "ছোট",
-        "কম",
-        "বার",
-        "_ইন্ডেক্স",
-        "নাল",
-        "হয়",
-        "থাকে",
-        "হ্যা",
-        "না",
-        "দেখাও",
-        "ইনপুট",
-        "_টাইপ",
-        "ডানে",
-        "বামে",
-        "উপরে",
-        "নিচে",
-        "দেখতে",
-        "বলতে",
-        "শুনতে",
-        "বুঝতে"
+        "\u09AA\u09A4\u09BE\u0995\u09BE",
+        "\u09A7\u09B0\u09BF",
+        "\u09AF\u09A6\u09BF",
+        "\u09A8\u09BE\u09B9\u09B2\u09C7",
+        "\u098F\u09AC\u0982",
+        "\u0985\u09A5\u09AC\u09BE",
+        "\u09B8\u09A4\u09CD\u09AF",
+        "\u09AE\u09BF\u09A5\u09CD\u09AF\u09BE",
+        "\u09B2\u09C1\u09AA",
+        "\u09A5\u09BE\u09AE\u09C7\u09BE",
+        "\u09A5\u09BE\u09AE\u09CB",
+        "\u099A\u09B2\u09AC\u09C7",
+        "\u09AB\u09BE\u0982\u09B6\u09A8",
+        "\u09B0\u09BF\u099F\u09BE\u09B0\u09CD\u09A8",
+        "\u098F\u09B0",
+        "\u09B8\u09AE\u09BE\u09A8",
+        "\u09AE\u09BE\u09A8",
+        "\u09AA\u09BE\u09DF",
+        "\u0985\u09B8\u09C0\u09AE",
+        "\u09A5\u09C7\u0995\u09C7",
+        "\u09AC\u09DC",
+        "\u09AC\u09C7\u09B6\u09BF",
+        "\u099B\u09C7\u09BE\u099F",
+        "\u099B\u09CB\u099F",
+        "\u0995\u09AE",
+        "\u09AC\u09BE\u09B0",
+        "_\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8",
+        "\u09A8\u09BE\u09B2",
+        "\u09B9\u09DF",
+        "\u09A5\u09BE\u0995\u09C7",
+        "\u09B9\u09CD\u09AF\u09BE",
+        "\u09A8\u09BE",
+        "\u09A6\u09C7\u0996\u09BE\u0993",
+        "\u0987\u09A8\u09AA\u09C1\u099F",
+        "_\u099F\u09BE\u0987\u09AA",
+        "\u09A1\u09BE\u09A8\u09C7",
+        "\u09AC\u09BE\u09AE\u09C7",
+        "\u0989\u09AA\u09B0\u09C7",
+        "\u09A8\u09BF\u099A\u09C7",
+        "\u09A6\u09C7\u0996\u09A4\u09C7",
+        "\u09AC\u09B2\u09A4\u09C7",
+        "\u09B6\u09C1\u09A8\u09A4\u09C7",
+        "\u09AC\u09C1\u099D\u09A4\u09C7"
       ];
       var reservedWordError = function(word){
-        return "ReservedWordError: '"+word+ "' একটি রিজার্ভ ওয়ার্ড "
-               + "যাহা ভ্যারিয়েবল বা ফাংশনের নাম হিসিবে ব্যবহার করা যাবে না ।";
+        return "ReservedWordError: '"+word+ "' \u098F\u0995\u099F\u09BF \u09B0\u09BF\u099C\u09BE\u09B0\u09CD\u09AD \u0993\u09DF\u09BE\u09B0\u09CD\u09A1 "
+               + "\u09AF\u09BE\u09B9\u09BE \u09AD\u09CD\u09AF\u09BE\u09B0\u09BF\u09DF\u09C7\u09AC\u09B2 \u09AC\u09BE \u09AB\u09BE\u0982\u09B6\u09A8\u09C7\u09B0 \u09A8\u09BE\u09AE \u09B9\u09BF\u09B8\u09BF\u09AC\u09C7 \u09AC\u09CD\u09AF\u09AC\u09B9\u09BE\u09B0 \u0995\u09B0\u09BE \u09AF\u09BE\u09AC\u09C7 \u09A8\u09BE \u0964";
       }
       function isSafari(){ // detect safari browser
         if(!navigator) return false;
@@ -11433,13 +12214,13 @@ var peg = (function() {
 
       /* take number or String & return String */
       function enToBnNumber(number) {
-        var mapObj = ["০","১","২","৩","৪","৫","৬","৭","৮","৯"];
+        var mapObj = ["\u09E6","\u09E7","\u09E8","\u09E9","\u09EA","\u09EB","\u09EC","\u09ED","\u09EE","\u09EF"];
         return convertNumber(mapObj, number);
       }
 
       /* take String & return Number */
       function bnToEnNumber(number){
-        var mapObj = {"০":0,"১":1,"২":2,"৩":3, "৪": 4,"৫":5,"৬":6,"৭":7, "৮": 8,"৯": 9 };
+        var mapObj = {"\u09E6":0,"\u09E7":1,"\u09E8":2,"\u09E9":3, "\u09EA": 4,"\u09EB":5,"\u09EC":6,"\u09ED":7, "\u09EE": 8,"\u09EF": 9 };
         return convertNumber(mapObj, number);
       }
 
@@ -11458,7 +12239,7 @@ var peg = (function() {
                      "type": "VariableDeclarator",
                      "id": {
                         "type": "Identifier",
-                        "name": "_ইন্ডেক্স"
+                        "name": "_\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8"
                      },
                      "init": {
                         "type": "Literal",
@@ -11473,7 +12254,7 @@ var peg = (function() {
                "operator": "<",
                "left": {
                   "type": "Identifier",
-                  "name": "_ইন্ডেক্স"
+                  "name": "_\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8"
                },
                "right": n
             },
@@ -11482,7 +12263,7 @@ var peg = (function() {
                "operator": "++",
                "argument": {
                   "type": "Identifier",
-                  "name": "_ইন্ডেক্স"
+                  "name": "_\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8"
                },
                "prefix": false
             }
@@ -11562,7 +12343,7 @@ var peg = (function() {
                     "type": "ThrowStatement",
                     "argument": {
                        "type": "Literal",
-                       "value": "লুপ ইরর: লুপটি শেষ হতে অনেক সময় লাগছে।"
+                       "value": "\u09B2\u09C1\u09AA \u0987\u09B0\u09B0: \u09B2\u09C1\u09AA\u099F\u09BF \u09B6\u09C7\u09B7 \u09B9\u09A4\u09C7 \u0985\u09A8\u09C7\u0995 \u09B8\u09AE\u09DF \u09B2\u09BE\u0997\u099B\u09C7\u0964"
                     }
                  }
                ]
@@ -11618,7 +12399,7 @@ var peg = (function() {
 
       function buildBinaryExpression(head, tail) {
         return buildTree(head, tail, function(result, element) {
-          // handle (string + 45)  -> (string + "৪৫")
+          // handle (string + 45)  -> (string + "\u09EA\u09EB")
           if(element[1] === "+"){
             if(result.type === "Literal" && element[3].type === "Literal" ){
               if((typeof result.value === "string" && typeof element[3].value === "number") ||
@@ -11679,3 +12460,517 @@ var peg = (function() {
     parse:       peg$parse
   };
 })();
+
+/* Common Utility functions required for browsers and Node application */
+
+(function(){
+  if(isNode()){
+    exports.isNode = isNode;
+    exports.getType = getType;
+    exports.enToBnNumber = enToBnNumber;
+    exports.bnToEnNumber = bnToEnNumber;
+    exports.enToBnKeyword = enToBnKeyword;
+    exports.enToBn = enToBn;
+    exports.stringify = stringify;
+  }
+  else{
+    window.utils = {
+      isNode : isNode,
+      getType : getType,
+      enToBnNumber : enToBnNumber,
+      bnToEnNumber : bnToEnNumber,
+      enToBnKeyword : enToBnKeyword,
+      enToBnError : enToBnError,
+      gameEnToBn: gameEnToBn,
+      enToBn : enToBn,
+      stringify : stringify,
+      codeContains : codeContains,
+    };
+  }
+
+  function isNode(){
+    return typeof module !== 'undefined' && typeof module.exports !== 'undefined' && typeof process === 'object' && process + '' === '[object process]';
+  }
+
+  function getType(v, convertNum){
+    return enToBnKeyword(typeof v);
+  }
+
+
+  /* conversion */
+  function convert(mapObj, input){
+    input = input + "";
+    var re = new RegExp(Object.keys(mapObj).join("|"),"gi");
+    //var str = input;
+    input  = input.replace(re, function(matched){
+      return mapObj[matched];
+    });
+
+    return input;
+  }
+
+  /* take number or String & return String */
+  function enToBnNumber(number) {
+    var mapObj = ["\u09E6","\u09E7","\u09E8","\u09E9","\u09EA","\u09EB","\u09EC","\u09ED","\u09EE","\u09EF"];
+    return convert(mapObj, number);
+  }
+
+  /* take String & return Number */
+  function bnToEnNumber(number){
+    var mapObj = {"\u09E6":0,"\u09E7":1,"\u09E8":2,"\u09E9":3, "\u09EA": 4,"\u09EB":5,"\u09EC":6,"\u09ED":7, "\u09EE": 8,"\u09EF": 9 };
+    return +convert(mapObj, number);
+  }
+
+  function enToBnKeyword(input){
+    input = input + "";
+    var mapObj = {
+      "string": "\u09B2\u09C7\u0996\u09BE", "number": "\u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0", "object": "\u0985\u09AC\u099C\u09C7\u0995\u09CD\u099F", "Object": "\u0985\u09AC\u099C\u09C7\u0995\u09CD\u099F",
+      "null": "\u09A8\u09BE\u09B2", "true": "\u09B8\u09A4\u09CD\u09AF", "false":"\u09AE\u09BF\u09A5\u09CD\u09AF\u09BE", "Infinity": "\u0985\u09B8\u09C0\u09AE \u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0",
+      "function": "\u09AB\u09BE\u0982\u09B6\u09A8", "boolean": "\u09AC\u09C1\u09B2\u09BF\u09DF\u09BE\u09A8", "undefined": "\u0985\u09B8\u0999\u09CD\u0997\u09BE\u09DF\u09BF\u09A4", "NaN": "[ \u09AD\u09C1\u09B2 \u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0 ]"
+    }
+    return convert(mapObj, input);
+  }
+
+  function convertRegxPatterns(input){
+    var mapObj = [
+      {
+        regx : "function.*\(.*\).*\{.*\};?",
+        value: "[\u098F\u099F\u09BF \u098F\u0995\u099F\u09BF \u09AB\u09BE\u0982\u09B6\u09A8]"
+      }
+    ];
+
+    for(var i=0;i<mapObj.length;i++){
+      input = input.replace(new RegExp(mapObj[i].regx, 'gi'), mapObj[i].value);
+    }
+    return input;
+  }
+
+  function enToBnError(input){
+    var mapObj = {
+      "NaN": "\u09AD\u09C1\u09B2 \u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0",
+      "SyntaxError": "\u09B8\u09BF\u09A8\u099F\u09CD\u09AF\u09BE\u0995\u09CD\u09B8 \u0987\u09B0\u09B0",
+      "ReferenceError": "\u09B0\u09C7\u09AB\u09BE\u09B0\u09C7\u09A8\u09CD\u09B8 \u0987\u09B0\u09B0",
+      "TypeError": "\u099F\u09BE\u0987\u09AA \u0987\u09B0\u09B0",
+      "is not a function" : "\u098F\u0995\u099F\u09BF \u09AB\u09BE\u0982\u09B6\u09A8 \u09A8\u09BE",
+      "is not defined" : "\u09A1\u09BF\u09AB\u09BE\u0987\u09A8 \u0995\u09B0\u09BE \u09B9\u09DF \u09A8\u09BF",
+      "undefined" : "\u0985\u09B8\u0999\u09CD\u0997\u09BE\u09DF\u09BF\u09A4\u09BF",
+      "Identifier" : "\u0986\u0987\u09A1\u09C7\u09A8\u09CD\u099F\u09BF\u09AB\u09BE\u0987\u09DF\u09BE\u09B0",
+      "has already been declared" : "\u098F\u0987 \u09B8\u09CD\u0995\u09CB\u09AA\u09C7 \u09AA\u09C1\u09A8\u09B0\u09BE\u09DF \u09A1\u09BF\u0995\u09CD\u09B2\u09C7\u09DF\u09BE\u09B0 \u0995\u09B0\u09BE \u09AF\u09BE\u09AC\u09C7 \u09A8\u09BE\u0964",
+      "of undefined" : "\u0985\u09B8\u0999\u09CD\u0997\u09BE\u09DF\u09BF\u09A4\u09BF",
+      "Cannot read property": "\u09AA\u09CD\u09B0\u09CB\u09AA\u09BE\u09B0\u09CD\u099F\u09BF",
+      "Illegal continue statement": "\u09AD\u09C1\u09B2 \u09AF\u09BE\u09DF\u0997\u09BE\u09DF \u099A\u09B2\u09AC\u09C7; \u09AC\u09CD\u09AF\u09AC\u09B9\u09BE\u09B0 \u0995\u09B0\u09C7\u099B\u09C7\u09A8\u0964",
+      "Illegal break statement": "\u09AD\u09C1\u09B2 \u09AF\u09BE\u09DF\u0997\u09BE\u09DF \u09A5\u09BE\u09AE\u09C7\u09BE; \u09AC\u09CD\u09AF\u09AC\u09B9\u09BE\u09B0 \u0995\u09B0\u09C7\u099B\u09C7\u09A8\u0964"
+    }
+
+    return convert(mapObj, input);
+  }
+  function gameEnToBn(input){
+    input == input+"".toLocaleLowerCase();
+
+    var mapObj = {
+      "loop": "\u09B2\u09C1\u09AA",
+      "condition": "\u0995\u09A8\u09CD\u09A1\u09BF\u09B6\u09A8",
+      "if": "\u09AF\u09A6\u09BF"
+    }
+    return convert(mapObj, input);
+  }
+  function enToBn(input){
+    input = input + "";
+    return enToBnKeyword( enToBnNumber(convertRegxPatterns(input)) );
+    //return( enToBnNumber(input));
+  }
+
+  /* stringify an object Or variable for console output */
+  function stringify(obj){
+    if(typeof obj == "object"){
+      var keys = Object.keys(obj);
+      var ar = [];
+      if(Array.isArray(obj)){
+        var keys = Object.keys(obj);
+        for(var key of keys){
+          ar[key] = stringify(obj[key]);
+        }
+        return "["+ar.toString()+"]";
+      }
+
+      var str = "{";
+      for(var key of keys){
+        if(str.length >1)
+          str = str + ",";
+        str = str + key+":"+stringify(obj[key]);
+      }
+      return str+"}";
+
+    }else if(typeof obj == "function"){
+      return '[\u09AB\u09BE\u0982\u09B6\u09A8]';
+    }else if(typeof obj == "string"){
+      return '"'+enToBn(obj)+'"';
+    }else{
+      return enToBn(obj);
+    }
+  }
+
+  // code contains some method or keyword
+  function codeContains(codeData, method){
+    method = method.toLocaleLowerCase();
+
+    var search = "";
+    if(method == "loop" || method == "\u09B2\u09C1\u09AA" )
+      search = "ForStatement";
+    else if(method == "condition"|| method == "if" || method == "\u09AF\u09A6\u09BF" )
+      search = "IfStatement";
+    else
+      return 0;
+
+    // str.indexOf('"type":"ForStatement"') != -1;
+
+    var str = JSON.stringify(codeData.ast.body);
+    var pattern = new RegExp(search,'g');
+
+    var count = (str.match(pattern) || []).length;
+    return count; // return the number of occurance
+  }
+})();
+
+
+var \u09A1\u09BE\u09A8\u09C7 = function(){ PotakaGame.goRight(); };
+var \u09AC\u09BE\u09AE\u09C7 = function(){ PotakaGame.goLeft(); };
+var \u0989\u09AA\u09B0\u09C7 = function(){ PotakaGame.goUp(); };
+var \u09A8\u09BF\u099A\u09C7 = function(){ PotakaGame.goDown(); };
+var _\u09AC\u09BE\u0982\u09B2\u09BE_\u0995\u09A8\u09AD\u09BE\u09B0\u09CD\u099F = utils.enToBn;
+var _\u09B2\u0997 = console.log;
+
+var \u0987\u09A8\u09AA\u09C1\u099F = function(message){
+  return prompt(message || "\u0987\u09A8\u09AA\u09C1\u099F \u09AA\u09CD\u09B0\u09A6\u09BE\u09A8 \u0995\u09B0\u09C1\u09A8");
+}
+
+var \u09A6\u09C7\u0996\u09BE\u0993 = function(){
+  var message = "";
+  for(var i = 0; i < arguments.length; i++){
+    if((typeof arguments[i] == "object" || typeof arguments[i] == "function") && arguments[i] !== null)
+      message += utils.stringify(arguments[i])+ " ";
+    else if(typeof arguments[i] == "string")
+      message += utils.enToBn( arguments[i] ) + " ";
+    else
+      message += utils.enToBn(arguments[i])+ " ";
+  }
+
+  addOutput(message);
+}
+
+const \u09AA\u09A4\u09BE\u0995\u09BE = {};
+const _\u099F\u09BE\u0987\u09AA = utils.getType;
+const _\u09AC\u09B0\u09CD\u0997\u09AE\u09C2\u09B2 = function(n){return Math.sqrt(n);};
+const _\u09AA\u09BE\u0987 = Math.PI;
+const _\u09B8\u09AE\u09DF = Date.now;
+const _\u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0 = function(n){ return utils.bnToEnNumber(n); };
+const _\u09AA\u09C2\u09B0\u09CD\u09A3\u09B8\u0982\u0996\u09CD\u09AF\u09BE = function(n){
+  if(typeof n == "string"){
+    n = utils.bnToEnNumber(n);
+  }
+  return parseInt(n)
+};
+
+/* Monkey Patching
+ *
+ * Attach utility functions
+ */
+(function(){
+
+  // safari doesn't support Array.prototype.\unicode
+  Array.prototype["\u09B2\u09C7\u0996\u09BE"] =  Array.prototype.toString;
+  Array.prototype["\u0995\u09BF"] =   Array.prototype.keys;
+  Array.prototype["\u09AF\u09CB\u0997"] = Array.prototype.join;
+  Array.prototype["\u09B8\u09BE\u0987\u099C"] = function(){return this.length};
+  Array.prototype["\u09AA\u09C1\u09B6"] = Array.prototype.push;
+  Array.prototype["\u09AA\u09AA"] = Array.prototype.pop;
+  Array.prototype["\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8"] = Array.prototype.indexOf;
+  Array.prototype["\u09B2\u09C1\u09AA"] = Array.prototype.forEach;
+
+  String.prototype["\u09B8\u09BE\u0987\u099C"] = function(){return this.length};
+  String.prototype["\u0987\u09A8\u09CD\u09A1\u09C7\u0995\u09CD\u09B8"] =  function(str){return this.indexOf(str)};
+  String.prototype["\u0995\u09AA\u09BF"] =  function(a,b){return this.substring(a,b)};
+
+})();
+
+function setCookie(name,value,days) {
+  days = days || 30;
+  var date = new Date();
+  date.setTime(date.getTime()+(days*24*60*60*1000));
+  var expires = "; expires="+date.toGMTString();
+  document.cookie = name+"="+value+expires+"; path=/";
+}
+
+function getCookie(name) {
+  var nameEQ = name + "=";
+  var ca = document.cookie.split(';');
+  for(var i=0;i < ca.length;i++) {
+    var c = ca[i];
+    while (c.charAt(0)==' ') c = c.substring(1,c.length);
+    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length,c.length);
+  }
+  return null;
+}
+
+function deleteCookie(name) {
+  createCookie(name,"",-1);
+}
+
+function clearOutput(){
+  $('#output-area').empty();
+  $('#btnCodeSubmit').hide();
+}
+
+function addOutputError(msg){
+  msg = msg.replace(/"/g, '&quot;');
+  msg = JSON.parse('"' + msg + '"');
+  var output = '<p class="error">'+msg+"</p>";
+  $('#output-area').html($('#output-area').html()+output);
+}
+
+function addOutput(msg){
+  msg = msg.replace(/"/g, '&quot;');
+  msg = JSON.parse('"' + msg + '"');
+  var output = "<p>"+msg+"</p>";
+  $('#output-area').html($('#output-area').html()+output);
+}
+
+function handleParseError(e){
+  //console.log(e);
+  var errorString = e.toString();
+  function getDefaultMessage(){
+    return utils.enToBnError(errorString);
+  }
+
+  if(e.name == "SyntaxError" && e.message.indexOf("ReservedWordError") != -1){
+    var line = utils.enToBnNumber(e.location.start.line) + " ";
+    var message = utils.enToBnError(e.name)
+          + ": " + utils.enToBnNumber(e.location.start.line) + " "
+          + "\u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0\u0020\u09B2\u09BE\u0987"
+          + "\u09A8\u09C7\u0020\u09AD\u09C1\u09B2\u0020\u0986\u099B\u09C7\u0964"
+          + " "+ e.message.substring(19);
+
+  }
+  else if(e.name == "SyntaxError" && e.location){
+    var line = utils.enToBnNumber(e.location.start.line) + " ";
+    var message = utils.enToBnError(e.name)
+          + ": " + utils.enToBnNumber(e.location.start.line) + " "
+          + "\u09A8\u09BE\u09AE\u09CD\u09AC\u09BE\u09B0\u0020\u09B2\u09BE\u0987"
+          + "\u09A8\u09C7\u0020\u09AD\u09C1\u09B2\u0020\u0986\u099B\u09C7\u0964"
+          + "\u0020\u0985\u09AA\u09CD\u09B0\u09A4\u09CD\u09AF\u09BE\u09B6\u09BF"
+          + "\u09A4"
+          + " '"+e.found+"' "
+          + "\u09AA\u09BE\u0993\u09DF\u09BE\u0020\u0997\u09C7\u099B\u09C7\u0964";
+  }else if(e.name == "ReferenceError" || e.name == "TypeError"){
+    var message = utils.enToBnError(errorString);
+  }else {
+    var message = utils.enToBnError(errorString);
+  }
+  clearOutput();
+  addOutputError(message || getDefaultMessage());
+}
+
+function runCode(){
+  var code = editor.getValue();
+  $('#code').trigger("runClicked", {code:code});
+
+  if(code==null || code=="")return clearOutput();
+  clearOutput();
+  var gCode = "";
+  try {
+    var ast = Potaka.parse(code);
+    gCode = escodegen.generate(ast);
+    $('#code').trigger("codeGenerate", {ast:ast,code:gCode});
+  } catch(e){
+    handleParseError(e);
+  }
+
+  //gCode =  "try{\n"+ gCode +";\n}catch(e){ handleParseError(e) }";
+  try {
+    eval(gCode);
+  } catch (e) {
+     handleParseError(e)
+  }
+  $('#btnCodeSubmit').show('slow');
+}
+
+var rootUrl = getRootUrl();
+var repoUrl = rootUrl+"repository/";
+var exmapleEndpoint = rootUrl+"statics/examples/";
+
+var codeFiles = {
+  "getting_started":  { file: exmapleEndpoint+ "getting_started.ptk" },
+  "variable":         { file: exmapleEndpoint+"variable.ptk" },
+  "condition":        { file: exmapleEndpoint+"condition.ptk" },
+  "loop":             { file: exmapleEndpoint+"loop.ptk" },
+  "function":         { file: exmapleEndpoint+"function.ptk" },
+  "testing":         { file: getRootUrl()+"testing/testProgram.ptk" },
+}
+
+function getRootUrl(){
+  var tmpLink = document.createElement('a');
+  tmpLink.href = window.location.href;
+  var rootUrl = tmpLink.protocol +"//"+tmpLink.host;
+  rootUrl = rootUrl.replace(/[a-z]+.html/, "");
+  if(rootUrl.slice(-1) != '/')
+  rootUrl += "/";
+  return rootUrl;
+}
+function testing(){
+  loadSampleCode("testing");
+}
+
+function loadSampleCode(index){
+  if(typeof codeFiles[index].data != "undefined")
+    return editor.setValue(codeFiles[index].data);
+
+  // if code not available locally, request for the file.
+  var file = codeFiles[index].file;
+  $.get(file,function(data, status){
+    if(!data) return handleFileLoadError(codeFiles[index]);
+    /* store data for later use */
+    if(data.length != 0)
+      codeFiles[index].data = data;
+
+    editor.setValue(data);
+  });
+}
+
+// load repository code
+function loadRepoCode(id){
+  var endPoint = repoUrl + "?type=json&id="+id;
+  var errorMessage = "// \u09A6\u09C1:\u0996\u09BF\u09A4! \u09B0\u09BF\u09AA\u09C7\u09BE\u099C\u09BF\u099F\u09B0\u09C0\u09A4\u09C7 \u0995\u09C7\u09BE\u09A8 \u0995\u09C7\u09BE\u09A1 \u0996\u09C1\u099C\u09C7 \u09AA\u09BE\u0993\u09DF\u09BE \u09AF\u09BE\u09DF \u09A8\u09BF\u0964"
+  $.get(endPoint,function(data, status){
+    data = JSON.parse(data);
+    if(!data.code) return false;
+    var comment = '/*\n * \u09AA\u09CD\u09B0\u09C7\u09BE\u0997\u09CD\u09B0\u09BE\u09AE\u0983 '+data.program_name
+                  +"\n * \u09B2\u09BF\u0996\u09C7\u099B\u09C7\u09A8\u0983 "+data.user_name
+                  +"\n */\n";
+
+    if(data.code){
+      var code = comment+data.code;
+    }else{
+      var code = errorMessage;
+    }
+    editor.setValue(code);
+  });
+}
+
+function handleFileLoadError(file){
+  var message = "Loading error.";
+  if(file)
+    message = "Error occured when loading "+ file;
+  alert(message);
+}
+
+var btnValues = {
+  "\u09B2\u09C1\u09AA" : "\u09B2\u09C1\u09AA(\u09E9 \u09AC\u09BE\u09B0){\n\t\n}",
+  "\u09AF\u09A6\u09BF" : "\u09AF\u09A6\u09BF(){\n\t\n}",
+  "\u09A8\u09BE\u09B9\u09B2\u09C7 \u09AF\u09A6\u09BF" : "\u09A8\u09BE\u09B9\u09B2\u09C7 \u09AF\u09A6\u09BF(){\n\t\n}",
+  "\u09A8\u09BE\u09B9\u09B2\u09C7" : "\u09A8\u09BE\u09B9\u09B2\u09C7{\n\t\n}",
+  "\u09AB\u09BE\u0982\u09B6\u09A8" : "\u09AB\u09BE\u0982\u09B6\u09A8 \u09AB\u09BE\u0982\u09B6\u09A8\u09C7\u09B0_\u09A8\u09BE\u09AE(){\n\t\n}",
+  "\u09B8\u09AE\u09BE\u09A8": "\u0995 \u098F\u09B0 \u09AE\u09BE\u09A8 \u0996 \u098F\u09B0 \u09B8\u09AE\u09BE\u09A8 \u09B9\u09DF",
+  "\u09B9\u09A4\u09C7": "\u0995 \u09B9\u09A4\u09C7 \u0996",
+  "\u09A5\u09C7\u0995\u09C7": "\u0995 \u09A5\u09C7\u0995\u09C7 \u0996",
+  "\u099A\u09C7\u09DF\u09C7": "\u0995 \u098F\u09B0 \u099A\u09C7\u09DF\u09C7 \u0996",
+  "\u09AC\u09DC": "\u09AC\u09DC \u09B9\u09DF",
+  "\u09AC\u09C7\u09B6\u09BF": "\u09AC\u09C7\u09B6\u09BF \u09B9\u09DF",
+  "\u099B\u09C7\u09BE\u099F": "\u099B\u09C7\u09BE\u099F \u09B9\u09DF",
+  "\u0995\u09AE": "\u0995\u09AE \u09B9\u09DF"
+}
+var editorCursor = {
+  line: 0,
+  ch: 0
+};
+var editor = CodeMirror.fromTextArea(document.getElementById("code"), {
+  lineNumbers: true,
+  matchBrackets: true,
+  continueComments: "Enter",
+  autoMatchParens: true,
+  extraKeys: {"Ctrl-Q": "toggleComment"}
+});
+editor.on('cursorActivity',function(e){
+  editorCursor.line = e.doc.getCursor().line;
+  editorCursor.ch = e.doc.getCursor().ch;
+});
+
+// on click btn, auto type code
+$(".tab-content button").on("click", function(){
+  var btnText = $(this).text();
+  if(Object.keys(btnValues).indexOf(btnText) == -1){
+    if(btnText.indexOf(";") != -1)
+      btnText = btnText+ "\n";
+    editor.replaceRange(btnText, editorCursor);
+  }else{
+    btnText = btnValues[btnText];
+    editor.replaceRange(btnText, editorCursor);
+    editor.indentLine(editorCursor.line);
+    editor.setCursor({line: editorCursor.line-1, ch: 4});
+    editor.execCommand("indentAuto");
+
+  }
+});
+
+function showSubmitDialog(){
+  $('.container').css('opacity','0.4');
+  $('#submittedCode').remove();
+  $('#submitCodeDialog').show();
+  $('<input>').attr({
+    type: 'hidden',
+    id: 'submittedCode',
+    name: 'code',
+    value: editor.getValue()
+  }).appendTo('#submitCodeDialog form');
+}
+
+function closeSubmitDialog(){
+  $('#submitCodeDialog').hide();
+  $('.container').css('opacity','1');
+}
+
+// auto focus on textEditor
+$(document).mouseup(function (e){
+  var container = $("textarea");
+  if($(e.target).is('input'))
+    return;
+  if (!container.is(e.target)&& container.has(e.target).length === 0){
+    $("textarea").focus();
+  }
+});
+
+// init avro keyboard
+$(document).ready(function() {
+  setLanguage("bn");
+  $("textarea").focus();
+});
+
+var _currentLang = "en";
+
+function setLanguage(select){
+  var layout, lang;
+
+  if(select == "bn"){
+    layout='bn-avro';
+    lang = "bn" ;
+    _currentLang = "bn";
+  }else{
+    layout='system';
+    lang = "en" ;
+    _currentLang = "en";
+  }
+  $.ime.preferences.setLanguage( lang );
+  $.ime.preferences.setIM( layout );
+
+  $( 'textarea').ime();
+  $('.typeBn').ime();
+}
+
+// change language view
+$('textarea').bind('keydown', function(event) {
+  if(event.ctrlKey && !event.altKey && ( event.which === 77 )){
+    if($('.keyboard-box').css('opacity')==1)
+      $('.keyboard-box').css('opacity','0.5');
+    else
+      $('.keyboard-box').css('opacity','1');
+  }
+});

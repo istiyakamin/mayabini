@@ -1,41 +1,175 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="bn">
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
+	<title>মায়াবিনী কোড এডিটর</title>
+  
+<meta charset='UTF-8'>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <style>
-        .flex{
-            display: flex;
-        }
-    </style>
+<meta name="description" content="মায়াবিনী, কোড লিখার জন্য থাকছে কোড হাইলাইটিং সহ একটি চমৎকার কোড এডিটর, রয়েছে বিল্ট-ইন ফনেটিক বাংলা (অভ্র) লেখার সুবিধা । ..."/>
+<meta name="keywords" content="কোড এডিটর,মায়াবিনী,বাংলা,প্রোগ্রামিং,ল্যাঙ্গুয়েজ,টিউটোরিয়াল">
+
+<meta name="robots" content="noodp"/>
+<meta property="og:locale" content="en_US"/>
+<meta property="og:type" content="article"/>
+<meta property="og:title" content="মায়াবিনী কোড এডিটর"/>
+<meta property="og:description" content="potaka.io মায়াবিনী, কোড লিখার জন্য থাকছে কোড হাইলাইটিং সহ একটি চমৎকার কোড এডিটর, রয়েছে বিল্ট-ইন ফনেটিক বাংলা (অভ্র) লেখার সুবিধা । ..."/>
+<meta property="article:tag" content="কোড এডিটর"/>
+<meta property="article:section" content="কোড এডিটর"/>
+
+<link rel="stylesheet" href="./statics/assets/css/editor.d903c358.css">
 </head>
 <body>
-    
+	<div id="preload">
+		<div class="preload-box">
+				<h4 style="text-align:center">Loading...</h4>
+				<img src="../.../statics/assets/images/Preloader_8.gif"/>
+	</div>
+	</div>
+	<div class="container">
+		<div class="row" style="padding-top:15px;">
+  <div class="six columns">
+    <h3>মায়াবিনী();</h3>
+    <div class="beta">
+      একটি PCIU এর প্রজেক্ট
+    </div>
+  </div>
+  <div class="six columns">
+    <ul class="menu top-menu">
+      <li><a href="/">পেপার</a>,</li>
+      <li><a href="/game">গিটহাব</a>,</li>
+      <li><a href="/docs?page=contribution">কন্ট্রিবিউশন</a>,</li>
+      <li><a href="/feedback">যোগাযোগ</a></li> 
+    </ul>
+  </div>
+</div>
 
-    <script src="./lib/parser.js"></script>
-    <script>
-        
-        let Result = Potaka.parse(`
+		<div class="row editorButtons">
+			<div class="seven columns">
+				<div class="five columns" style="color:gray; padding-top:25px;">
+					# এখানে কোড লিখুন
+				</div>
 
-            ধরি ইসতিয়াক = ১০;           // নাম্বার
-            ধরি খ = ২ * ৫ + ২.৬;  // দশমিক নাম্বার
-            ধরি ব = সত্য;          // বুলিয়ান
-            ধরি এ = [১,৩,৪];      // এ্যারে
+				<div class="seven columns">
+          <button class="btn-run" onclick="runCode()" style="float:right;">রান</button>
+				</div>
+			</div>
+			<div class="five columns">
+				<button class="btn-clear" onclick="clearOutput()">আউটপুট মুছে ফেলুন</button>
+        <button id="btnCodeSubmit" class="btn-clear" onclick="showSubmitDialog()" style="display:none;">কোড সাবমিট করুন</button>
+			</div>
+		</div>
 
-            /* অবজেক্ট ডিফাইন করা */
-            ধরি অ = {
-                নাম : "ইসতিয়াক আমিন শান্ত",
-                শখ : "আকাশ কুসুম স্বপ্ন দেখা"
-            }
+		<div class="row">
+			<div class="seven columns">
+        <textarea id="code" name="code" class="code-area" style="width:700px;"></textarea>
+			</div>
+			<div class="five columns">
+				<div id="output-area"><span style="color:gray"># আউটপুট কনসোল</span></div>
+				<div id="hint-box">
+					<ul class="tab-nav">
+					  <li>
+					    <a class="button active" href="#one">কিওয়্যার্ড-১</a>
+					  </li>
+					  <li>
+					    <a class="button" href="#two">কিওয়্যার্ড-২</a>
+					  </li>
+					  <li>
+					    <a class="button" href="#three">ফাংশন</a>
+					  </li>
+					</ul>
 
-            দেখাও(ক, খ, এ, অ);
 
-        `);
+					<div class="tab-content">
+					  <div class="tab-pane active" id="one">
+							<button>ধরি </button>
+							<button>যদি</button>
+							<button>নাহলে যদি</button>
+							<button>নাহলে</button>
+							<button>এবং </button>
+							<button>অথবা </button>
+							<button>সত্য</button>
+							<button>মিথ্যা</button>
+							<button>হ্যা</button>
+							<button>না</button>
+							<button>লুপ</button>
+							<button>চলবে;</button>
+							<button>থামো;</button>
+              <button>নাল</button>
+							<button>ফাংশন </button>
+							<button>রিটার্ন </button>
+							<button>অসীম</button>
+							<button>_ইন্ডেক্স</button>
 
-        console.log(Result);
-    </script>
+						</div>
+					  <div class="tab-pane" id="two">
+              <button>এর </button>
+							<button>বার</button>
+							<button>হয়</button>
+							<button>পায় </button>
+							<button>থাকে </button>
+							<button>হতে</button>
+							<button>থেকে</button>
+							<button>চেয়ে</button>
+              <button>মান </button>
+              <button>সমান</button>
+              <button>ছোট</button>
+              <button>বড়</button>
+              <button>কম</button>
+              <button>বেশি</button>
+              <button>দেখতে</button>
+              <button>শুনতে </button>
+              <button>বলতে </button>
+              <button>বুঝতে </button>
+            </div>
+					  <div class="tab-pane" id="three">
+							<button>দেখাও()</button>
+							<button>ইনপুট()</button>
+							<button>_টাইপ()</button>
+							<button>_বর্গমূল()</button>
+							<button>_নাম্বার()</button>
+							<button>_পূর্ণসংখ্যা()</button>
+							<button>_সময়()</button>
+							<button>_পাই</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<div class="row footer">
+  <div class="eight columns loadSample" style="margin-left:2%;">
+        <ul class="menu">
+      <li style="color:gray;">উদাহরন(</li>
+      <li><a href="#" onclick="loadSampleCode('getting_started')">প্রাথমিক</a>,</li>
+      <li><a href="#" onclick="loadSampleCode('variable')">ভ্যারিয়েবল</a>,</li>
+      <li><a href="#" onclick="loadSampleCode('condition')">কন্ডিশন</a>,</li>
+      <li><a href="#" onclick="loadSampleCode('loop')">লুপ</a>,</li>
+      <li><a href="#" onclick="loadSampleCode('function')">ফাংশন</a></li>
+      <li style="color:gray">)</li>
+    </ul>
+    </div>
+  <div class="four columns" style="margin: 0;">
+    <ul class="menu" style="float:right;">
+      <li style="color:gray;">কানেক্ট(</li>
+      <li><a href="http://facebook.com/potaka.io">ফেসবুক</a>,</li>
+      <li><a href="http://github.com/ikrum/potaka">গিটহাব</a></li>
+      <li style="color:gray">)</li>
+    </ul>
+  </div>
+
+</div>
+	</div>
+
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/2.2.4/jquery.min.js"></script>
+
+  <script src="./statics/assets/js/editorLibs.min.5f57dfe1.js"></script>
+
+	<script src="./statics/assets/js/editor.cab49987.js"></script>
+
+  <script src="./statics/assets/js/jquery.ime.bc2ce75a.js"></script>
+
+  <script type="text/javascript">$(document).ready(function(){$('#preload').hide();loadSampleCode('getting_started');});</script>
+
 </body>
+<script>(function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){(i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)})(window,document,'script','https://www.google-analytics.com/analytics.js','ga');ga('create','UA-50167420-4','auto');ga('send','pageview');</script>
 </html>
