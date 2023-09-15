@@ -12799,12 +12799,12 @@ var repoUrl = rootUrl+"repository/";
 var exmapleEndpoint = rootUrl+"statics/examples/";
 
 var codeFiles = {
-  "getting_started":  { file: exmapleEndpoint+ "getting_started.ptk" },
-  "variable":         { file: exmapleEndpoint+"variable.ptk" },
-  "condition":        { file: exmapleEndpoint+"condition.ptk" },
-  "loop":             { file: exmapleEndpoint+"loop.ptk" },
-  "function":         { file: exmapleEndpoint+"function.ptk" },
-  "testing":         { file: getRootUrl()+"testing/testProgram.ptk" },
+  "getting_started":  { file: exmapleEndpoint+ "getting_started.maya" },
+  "variable":         { file: exmapleEndpoint+"variable.maya" },
+  "condition":        { file: exmapleEndpoint+"condition.maya" },
+  "loop":             { file: exmapleEndpoint+"loop.maya" },
+  "function":         { file: exmapleEndpoint+"function.maya" },
+  "testing":         { file: getRootUrl()+"testing/testProgram.maya" },
 }
 
 function getRootUrl(){
