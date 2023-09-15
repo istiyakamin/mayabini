@@ -779,7 +779,7 @@ CodeMirror.defineMIME("application/typescript", { name: "javascript", typescript
 
 });
 
-var Potaka = (function() {
+var Mayabini = (function() {
   "use strict";
 
   /*
@@ -12633,10 +12633,10 @@ var Potaka = (function() {
 })();
 
 
-var \u09A1\u09BE\u09A8\u09C7 = function(){ PotakaGame.goRight(); };
-var \u09AC\u09BE\u09AE\u09C7 = function(){ PotakaGame.goLeft(); };
-var \u0989\u09AA\u09B0\u09C7 = function(){ PotakaGame.goUp(); };
-var \u09A8\u09BF\u099A\u09C7 = function(){ PotakaGame.goDown(); };
+var \u09A1\u09BE\u09A8\u09C7 = function(){ MayabiniGame.goRight(); };
+var \u09AC\u09BE\u09AE\u09C7 = function(){ MayabiniGame.goLeft(); };
+var \u0989\u09AA\u09B0\u09C7 = function(){ MayabiniGame.goUp(); };
+var \u09A8\u09BF\u099A\u09C7 = function(){ MayabiniGame.goDown(); };
 var _\u09AC\u09BE\u0982\u09B2\u09BE_\u0995\u09A8\u09AD\u09BE\u09B0\u09CD\u099F = utils.enToBn;
 var _\u09B2\u0997 = console.log;
 
@@ -12778,7 +12778,7 @@ function runCode(){
   clearOutput();
   var gCode = "";
   try {
-    var ast = Potaka.parse(code);
+    var ast = Mayabini.parse(code);
     gCode = escodegen.generate(ast);
     $('#code').trigger("codeGenerate", {ast:ast,code:gCode});
   } catch(e){

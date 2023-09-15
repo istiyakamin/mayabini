@@ -1,6 +1,6 @@
-import Potaka from "./lib/parser"
+import Mayabini from "./lib/parser"
 
-let a = Potaka.parse(`
+let a = Mayabini.parse(`
 ধরি ক = ১০;           // নাম্বার
 ধরি খ = ২ * ৫ + ২.৬;  // দশমিক নাম্বার
 ধরি ব = সত্য;          // বুলিয়ান
